@@ -34,12 +34,13 @@ async function startServer() {
   const MONGODB_URI = process.env.MONGODB_URI;
 
   if (MONGODB_URI) {
-    mongoose.connect(MONGODB_URI)
+    mongoose
+      .connect(MONGODB_URI)
       .then(() => {
         console.log('✅ MongoDB Connected');
         isDbConnected = true;
       })
-      .catch(err => {
+      .catch((err) => {
         console.error('❌ MongoDB Connection Error:', err.message);
         console.log('⚠️ Falling back to Demo Mode with mock data.');
         isDbConnected = false;
@@ -54,7 +55,6 @@ async function startServer() {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ message: 'Unauthorized' });
 
-    // Allow demo token if DB is not connected OR if the token is explicitly 'demo-token'
     if (token === 'demo-token') {
       req.adminId = 'demo-admin';
       return next();
@@ -79,7 +79,9 @@ async function startServer() {
         if (username === 'admin' && password === 'admin123') {
           return res.json({ token: 'demo-token', username: 'admin (Demo)' });
         }
-        return res.status(400).json({ message: 'Invalid credentials (Demo Mode: use admin/admin123)' });
+        return res
+          .status(400)
+          .json({ message: 'Invalid credentials (Demo Mode: use admin/admin123)' });
       }
       const admin = await Admin.findOne({ username });
       if (!admin) return res.status(400).json({ message: 'Admin not found' });
@@ -87,7 +89,11 @@ async function startServer() {
       const isMatch = await bcrypt.compare(password, admin.password);
       if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-      const token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+      const token = jwt.sign(
+        { id: admin._id },
+        process.env.JWT_SECRET || 'secret',
+        { expiresIn: '1d' }
+      );
       res.json({ token, username: admin.username });
     } catch (err) {
       res.status(500).json({ message: 'Server error' });
@@ -98,8 +104,9 @@ async function startServer() {
   app.get('/api/students/portal/:id', async (req, res) => {
     try {
       if (!isDbConnected) {
-        const student = currentMockStudents.find(s => s.studentId === req.params.id);
-        if (!student) return res.status(404).json({ message: 'Student not found (Demo Mode)' });
+        const student = currentMockStudents.find((s) => s.studentId === req.params.id);
+        if (!student)
+          return res.status(404).json({ message: 'Student not found (Demo Mode)' });
         return res.json(student);
       }
       const student = await Student.findOne({ studentId: req.params.id });
@@ -114,8 +121,14 @@ async function startServer() {
     const { name, dob } = req.body;
     try {
       if (!isDbConnected) {
-        const student = currentMockStudents.find(s => s.name === name && new Date(s.dob).toISOString().split('T')[0] === new Date(dob).toISOString().split('T')[0]);
-        if (!student) return res.status(404).json({ message: 'Student not found (Demo Mode)' });
+        const student = currentMockStudents.find(
+          (s) =>
+            s.name === name &&
+            new Date(s.dob).toISOString().split('T')[0] ===
+              new Date(dob).toISOString().split('T')[0]
+        );
+        if (!student)
+          return res.status(404).json({ message: 'Student not found (Demo Mode)' });
         return res.json({ studentId: student.studentId });
       }
       const student = await Student.findOne({ name, dob: new Date(dob) });
@@ -126,7 +139,7 @@ async function startServer() {
     }
   });
 
-  // Events
+  // Events (public)
   app.get('/api/events', async (req, res) => {
     try {
       if (!isDbConnected) return res.json(currentMockEvents);
@@ -140,7 +153,11 @@ async function startServer() {
   app.post('/api/admin/events', authenticateAdmin, async (req, res) => {
     try {
       if (!isDbConnected) {
-        const newEvent = { ...req.body, _id: Date.now().toString(), status: 'upcoming' };
+        const newEvent = {
+          ...req.body,
+          _id: Date.now().toString(),
+          status: 'upcoming',
+        };
         currentMockEvents.push(newEvent);
         return res.status(201).json(newEvent);
       }
@@ -152,7 +169,7 @@ async function startServer() {
     }
   });
 
-  // Gallery
+  // Gallery (public)
   app.get('/api/gallery', async (req, res) => {
     try {
       if (!isDbConnected) return res.json(currentMockGallery);
@@ -182,17 +199,25 @@ async function startServer() {
         return res.json({
           students: currentMockStudents.length,
           events: currentMockEvents.length,
-          pendingFees: currentMockStudents.reduce((acc, s) => acc + (s.feesPending || 0), 0),
-          dbStatus
+          pendingFees: currentMockStudents.reduce(
+            (acc, s) => acc + (s.feesPending || 0),
+            0
+          ),
+          dbStatus,
         });
       }
       const [studentsCount, eventsCount, students] = await Promise.all([
         Student.countDocuments(),
         Event.countDocuments(),
-        Student.find()
+        Student.find(),
       ]);
       const pendingFees = students.reduce((acc, s) => acc + (s.feesPending || 0), 0);
-      res.json({ students: studentsCount, events: eventsCount, pendingFees, dbStatus });
+      res.json({
+        students: studentsCount,
+        events: eventsCount,
+        pendingFees,
+        dbStatus,
+      });
     } catch (err) {
       res.status(500).json({ message: 'Server error' });
     }
@@ -213,73 +238,67 @@ async function startServer() {
 
   app.post('/api/admin/students', authenticateAdmin, async (req, res) => {
     try {
+      // --- DEMO MODE ---
       if (!isDbConnected) {
-        console.log("⚠️ DEMO MODE");
-        const newStudent = { ...req.body, _id: Date.now().toString(), studentId: `ETKD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}` };
+        console.log('⚠️ DEMO MODE');
+        let studentId = req.body.studentId?.trim();
+        if (!studentId) {
+          studentId = `YTA${String(currentMockStudents.length + 1).padStart(4, '0')}`;
+        }
+        const newStudent = {
+          ...req.body,
+          _id: Date.now().toString(),
+          studentId,
+        };
         currentMockStudents.push(newStudent);
         return res.status(201).json(newStudent);
       }
-      // const newStudent = new Student(req.body);
-      // await newStudent.save();
 
+      // --- MONGODB MODE ---
+      console.log('✅ MONGODB MODE');
 
-      // const studentId = `ETKD-${new Date().getFullYear()}-${Date.now()}`;
+      // Use admin-typed studentId if provided, else auto-generate
+      let studentId = req.body.studentId?.trim();
 
-      // const newStudent = new Student({
-      //   ...req.body,
-      //   studentId,
-      // });
+      if (!studentId) {
+        const lastStudent = await Student.findOne()
+          .sort({ studentId: -1 })
+          .select('studentId');
 
-// Get the latest student
-const lastStudent = await Student.findOne()
-  .sort({ studentId: -1 })
-  .select("studentId");
+        let nextNumber = 1;
+        if (lastStudent?.studentId) {
+          const num = parseInt(lastStudent.studentId.replace('YTA', ''), 10);
+          if (!isNaN(num)) nextNumber = num + 1;
+        }
+        studentId = `YTA${String(nextNumber).padStart(4, '0')}`;
+      }
 
-// Start numbering from 1
-let nextNumber = 1;
-
-if (lastStudent && lastStudent.studentId) {
-  const number = parseInt(lastStudent.studentId.replace("YTA", ""));
-  nextNumber = number + 1;
-}
-
-// Create Student ID
-const studentId = `YTA${String(nextNumber).padStart(4, "0")}`;
-console.log("✅ MONGODB MODE");
-
-const newStudent = new Student({
-  ...req.body,
-  studentId,
-});
-
-await newStudent.save();
-
-res.status(201).json(newStudent);
-
-
-
-      // await newStudent.save();
-      // res.status(201).json(newStudent);
-
-
-
-    } catch (err) {
-      console.error("========== SAVE ERROR ==========");
-      console.error(err);
-      console.error("Message:", err.message);
-
-      res.status(500).json({
-        message: err.message,
-        error: err
+      const newStudent = new Student({
+        ...req.body,
+        studentId,
       });
-    }
 
+      await newStudent.save();
+      res.status(201).json(newStudent);
+    } catch (err) {
+      console.error('========== SAVE ERROR ==========');
+      console.error(err);
+
+      // Duplicate studentId
+      if (err.code === 11000) {
+        return res.status(400).json({
+          message: 'Student ID already exists. Please use a unique ID.',
+        });
+      }
+
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.delete('/api/admin/students/:id', authenticateAdmin, async (req, res) => {
     try {
       if (!isDbConnected) {
-        const index = currentMockStudents.findIndex(s => s._id === req.params.id);
+        const index = currentMockStudents.findIndex((s) => s._id === req.params.id);
         if (index !== -1) {
           currentMockStudents.splice(index, 1);
           return res.json({ message: 'Student deleted (Demo Mode)' });
@@ -298,16 +317,30 @@ res.status(201).json(newStudent);
   app.put('/api/admin/students/:id', authenticateAdmin, async (req, res) => {
     try {
       if (!isDbConnected) {
-        const index = currentMockStudents.findIndex(s => s._id === req.params.id);
+        const index = currentMockStudents.findIndex((s) => s._id === req.params.id);
         if (index !== -1) {
-          currentMockStudents[index] = { ...currentMockStudents[index], ...req.body };
+          currentMockStudents[index] = {
+            ...currentMockStudents[index],
+            ...req.body,
+          };
           return res.json(currentMockStudents[index]);
         }
         return res.status(404).json({ message: 'Student not found in Demo Mode' });
       }
-      const updatedStudent = await Student.findByIdAndUpdate(req.params.id, req.body, { new: true });
+      const updatedStudent = await Student.findByIdAndUpdate(
+        req.params.id,
+        req.body,
+        { new: true, runValidators: true }
+      );
+      if (!updatedStudent)
+        return res.status(404).json({ message: 'Student not found' });
       res.json(updatedStudent);
     } catch (err) {
+      if (err.code === 11000) {
+        return res
+          .status(400)
+          .json({ message: 'Student ID already exists. Please use a unique ID.' });
+      }
       res.status(500).json({ message: 'Server error' });
     }
   });
@@ -326,7 +359,7 @@ res.status(201).json(newStudent);
   app.delete('/api/admin/events/:id', authenticateAdmin, async (req, res) => {
     try {
       if (!isDbConnected) {
-        const index = currentMockEvents.findIndex(e => e._id === req.params.id);
+        const index = currentMockEvents.findIndex((e) => e._id === req.params.id);
         if (index !== -1) {
           currentMockEvents.splice(index, 1);
           return res.json({ message: 'Event deleted (Demo Mode)' });
@@ -345,14 +378,19 @@ res.status(201).json(newStudent);
   app.put('/api/admin/events/:id', authenticateAdmin, async (req, res) => {
     try {
       if (!isDbConnected) {
-        const index = currentMockEvents.findIndex(e => e._id === req.params.id);
+        const index = currentMockEvents.findIndex((e) => e._id === req.params.id);
         if (index !== -1) {
-          currentMockEvents[index] = { ...currentMockEvents[index], ...req.body };
+          currentMockEvents[index] = {
+            ...currentMockEvents[index],
+            ...req.body,
+          };
           return res.json(currentMockEvents[index]);
         }
         return res.status(404).json({ message: 'Event not found in Demo Mode' });
       }
-      const updatedEvent = await Event.findByIdAndUpdate(req.params.id, req.body, { new: true });
+      const updatedEvent = await Event.findByIdAndUpdate(req.params.id, req.body, {
+        new: true,
+      });
       res.json(updatedEvent);
     } catch (err) {
       res.status(500).json({ message: 'Server error' });
@@ -373,7 +411,11 @@ res.status(201).json(newStudent);
   app.post('/api/admin/gallery', authenticateAdmin, async (req, res) => {
     try {
       if (!isDbConnected) {
-        const newImage = { ...req.body, _id: Date.now().toString(), uploadedAt: new Date() };
+        const newImage = {
+          ...req.body,
+          _id: Date.now().toString(),
+          uploadedAt: new Date(),
+        };
         currentMockGallery.push(newImage);
         return res.status(201).json(newImage);
       }
@@ -388,7 +430,7 @@ res.status(201).json(newStudent);
   app.delete('/api/admin/gallery/:id', authenticateAdmin, async (req, res) => {
     try {
       if (!isDbConnected) {
-        const index = currentMockGallery.findIndex(g => g._id === req.params.id);
+        const index = currentMockGallery.findIndex((g) => g._id === req.params.id);
         if (index !== -1) {
           currentMockGallery.splice(index, 1);
           return res.json({ message: 'Image deleted (Demo Mode)' });
@@ -407,25 +449,31 @@ res.status(201).json(newStudent);
   app.put('/api/admin/gallery/:id', authenticateAdmin, async (req, res) => {
     try {
       if (!isDbConnected) {
-        const index = currentMockGallery.findIndex(g => g._id === req.params.id);
+        const index = currentMockGallery.findIndex((g) => g._id === req.params.id);
         if (index !== -1) {
-          currentMockGallery[index] = { ...currentMockGallery[index], ...req.body };
+          currentMockGallery[index] = {
+            ...currentMockGallery[index],
+            ...req.body,
+          };
           return res.json(currentMockGallery[index]);
         }
         return res.status(404).json({ message: 'Image not found in Demo Mode' });
       }
-      const updatedImage = await Gallery.findByIdAndUpdate(req.params.id, req.body, { new: true });
+      const updatedImage = await Gallery.findByIdAndUpdate(req.params.id, req.body, {
+        new: true,
+      });
       res.json(updatedImage);
     } catch (err) {
       res.status(500).json({ message: 'Server error' });
     }
   });
 
-  // Seed Admin (Run once or if no admins exist)
+  // Seed Admin
   app.post('/api/admin/seed', async (req, res) => {
     try {
       const adminExists = await Admin.findOne({ username: 'admin' });
-      if (adminExists) return res.status(400).json({ message: 'Admin already exists' });
+      if (adminExists)
+        return res.status(400).json({ message: 'Admin already exists' });
 
       const hashedPassword = await bcrypt.hash('admin123', 10);
       const newAdmin = new Admin({ username: 'admin', password: hashedPassword });
@@ -436,7 +484,7 @@ res.status(201).json(newStudent);
     }
   });
 
-  // Vite middleware for development
+  // Vite middleware for development (commented out)
   // if (process.env.NODE_ENV !== 'production') {
   //   const vite = await createViteServer({
   //     server: { middlewareMode: true },
